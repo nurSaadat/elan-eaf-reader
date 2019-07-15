@@ -2,6 +2,16 @@ import glob
 import pympi
 
 def print_time(annotation):
+	"""Prints the exact time of annotation
+
+	Parameters:
+		annotation (tuple): start time, end time and content 
+						of a single annotation  
+
+	Returs:
+		None
+
+	"""
 	seconds = annotation[1] * 0.001
 	minutes = int(seconds // 60)
 	seconds = int(seconds % 60)
@@ -9,6 +19,16 @@ def print_time(annotation):
 	print("time: {}:{}.{}".format(minutes, seconds, millisec)) 
 
 def print_space_error(annotation):
+	"""Prints whether there is a space before or after a string
+
+	Parameters:
+		annotation (tuple): start time, end time and content 
+						of a single annotation  
+
+	Returs:
+		None
+
+	"""
 	text = annotation[2]
 	if text.startswith(' '):
 		print("space start {}".format(annotation))
@@ -20,6 +40,18 @@ def print_space_error(annotation):
 		print("{:*^30}".format(''))
 
 def print_time_error(annotation_1, annotation_2):
+	"""Prints whether there is a time gap between two annotations
+
+	Parameters:
+		annotation_1 (tuple): start time, end time and content 
+						of a single annotation before the gap
+		annotation_2 (tuple): start time, end time and content 
+						of a single annotation after the gap
+
+	Returs:
+		None
+
+	"""
 	time_dif = annotation_2[0] - annotation_1[1]
 	print("gap between {} and {}". format(annotation_1, annotation_2))
 	print_time(annotation_1)
@@ -27,6 +59,15 @@ def print_time_error(annotation_1, annotation_2):
 	print("{:*^30}".format(''))
 
 def get_annotation_list(file_name):
+	"""Reads .eaf file and returns a list of all annotations
+
+	Parameters:
+		file_name (str): directory of a source file  
+
+	Returs:
+		annotations_list (list): all annotations of a single document 
+
+	"""
 	eaf = pympi.Elan.Eaf(file_name)
 	tier_name = list(eaf.get_tier_names())[0]
 	annotations_list = eaf.get_annotation_data_for_tier(tier_name)
