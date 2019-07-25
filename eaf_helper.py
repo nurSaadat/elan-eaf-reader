@@ -1,4 +1,8 @@
+import datetime 
 import glob
+import logging
+import os
+import my_parce_eaf
 import pympi
 
 def print_time(annotation):
@@ -16,10 +20,10 @@ def print_time(annotation):
 	minutes = int(seconds // 60)
 	seconds = int(seconds % 60)
 	millisec = int(annotation[1] % 1000)
-	print("time: {}:{}.{}".format(minutes, seconds, millisec)) 
+	logging.info("time: {}:{}.{}".format(minutes, seconds, millisec)) 
 
-def print_space_error(annotation):
-	"""Prints whether there is a space before or after a string
+def space_error(annotation):
+	"""Checks whether there is a space before or after a string
 
 	Parameters:
 		annotation (tuple): start time, end time and content 
@@ -31,15 +35,15 @@ def print_space_error(annotation):
 	"""
 	text = annotation[2]
 	if text.startswith(' '):
-		print("space start {}".format(annotation))
+		logging.info("space start {}".format(annotation))
 		print_time(annotation)
-		print("{:*^30}".format(''))
+		logging.info("{:*^30}".format(''))
 	if text.endswith(' '):
-		print("space end {}".format(annotation))
+		logging.info("space end {}".format(annotation))
 		print_time(annotation)
-		print("{:*^30}".format(''))
+		logging.info("{:*^30}".format(''))
 
-def print_time_error(annotation_1, annotation_2):
+def time_error(annotation_1, annotation_2):
 	"""Prints whether there is a time gap between two annotations
 
 	Parameters:
@@ -53,10 +57,10 @@ def print_time_error(annotation_1, annotation_2):
 
 	"""
 	time_dif = annotation_2[0] - annotation_1[1]
-	print("gap between {} and {}". format(annotation_1, annotation_2))
+	logging.info("gap between {} and {}". format(annotation_1, annotation_2))
 	print_time(annotation_1)
-	print("time gap {}".format(time_dif))
-	print("{:*^30}".format(''))
+	logging.info("time gap {}".format(time_dif))
+	logging.info("{:*^30}".format(''))
 
 def get_annotation_list(file_name):
 	"""Reads .eaf file and returns a list of all annotations
@@ -73,16 +77,35 @@ def get_annotation_list(file_name):
 	annotations_list = eaf.get_annotation_data_for_tier(tier_name)
 	return(annotations_list)
 
+def init_logger():
+	file_name = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+	log_directory = "log/"
+	if not os.path.exists(log_directory):
+		os.mkdir(log_directory)
+	log_path = "".join([log_directory, file_name, '.log'])
+	logging.basicConfig(
+		filename=log_path, 
+		level=logging.INFO, 
+		filemode="w", 
+		format='\n%(asctime)s\n%(message)s'
+	)
+
 def main():
-	data_dir = '/home/saadat/akbilek'
-	for file_path in glob.glob('{}/*.eaf'.format(data_dir)):
+	init_logger()
+	my_parce_eaf.change_function()
+
+	data_directory = 'data/'
+	if not os.path.exists(data_directory):
+		os.mkdir(data_directory)
+	for file_path in glob.glob('{}/*.eaf'.format(data_directory)):
 		annot_list = get_annotation_list(file_path)
-		print("looking in {} ...".format(file_path))
+		logging.info("Currently in {} .".format(file_path))
+		logging.info("{:=^30}".format(''))
 		for i in range(len(annot_list) - 1):
-			print_space_error(annot_list[i])
+			space_error(annot_list[i])
 			if annot_list[i][1] != annot_list[i + 1][0]:
-				print_time_error(annot_list[i], annot_list[i + 1])
-		print_space_error(annot_list[-1])
+				time_error(annot_list[i], annot_list[i + 1])
+		space_error(annot_list[-1])
 
 if __name__ == "__main__":
 	main()
