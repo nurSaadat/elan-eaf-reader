@@ -85,9 +85,8 @@ def init_logger():
 	log_path = "".join([log_directory, file_name, '.log'])
 	logging.basicConfig(
 		filename=log_path, 
-		level=logging.INFO, 
-		filemode="w", 
-		format='\n%(asctime)s\n%(message)s'
+		level=logging.INFO,
+		format='%(message)s\n'
 	)
 
 def main():
@@ -97,6 +96,7 @@ def main():
 	data_directory = 'data/'
 	if not os.path.exists(data_directory):
 		os.mkdir(data_directory)
+
 	for file_path in glob.glob('{}/*.eaf'.format(data_directory)):
 		annot_list = get_annotation_list(file_path)
 		logging.info("Currently in {} .".format(file_path))

@@ -1,4 +1,5 @@
 from xml.etree import cElementTree as etree
+import logging
 import pympi.Elan as Elan
 
 def parse_eaf(file_path, eaf_obj):
@@ -16,7 +17,7 @@ def parse_eaf(file_path, eaf_obj):
         raise Exception('Unable to parse eaf, can you open it in ELAN?')
 
     if tree_root.attrib['VERSION'] not in ['2.8', '2.7']:
-        logging.warning('Parsing unknown version of ELAN spec... '
+        logging.warning('WARNING: Parsing unknown version of ELAN spec... '
                     'This could result in errors...\n')
     eaf_obj.adocument.update(tree_root.attrib)
     del(eaf_obj.adocument['{http://www.w3.org/2001/XMLSchema-instance}noNamesp'
