@@ -2,8 +2,7 @@ import datetime
 import glob
 import logging
 import os
-import my_parce_eaf
-import pympi
+import my_elan
 
 def print_time(annotation):
 	"""Prints the exact time of annotation
@@ -72,7 +71,7 @@ def get_annotation_list(file_name):
 		annotations_list (list): all annotations of a single document 
 
 	"""
-	eaf = pympi.Elan.Eaf(file_name)
+	eaf = my_elan.Eaf(file_name)
 	tier_name = list(eaf.get_tier_names())[0]
 	annotations_list = eaf.get_annotation_data_for_tier(tier_name)
 	return(annotations_list)
