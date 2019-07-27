@@ -1,8 +1,23 @@
+import argparse
 import datetime 
 import glob
 import logging
 import os
 import my_elan
+
+def write_as_txt(eaf_file_name):
+	eaf_file = my_elan.Eaf(eaf_file_name)
+	tier_name = list(eaf_file.get_tier_names())[0]
+	annotations_list = ""
+	for annotation in eaf_file.get_annotation_data_for_tier(tier_name):
+		start_time, end_time, text = annotation
+		new_line = "{}\t{}\t{}".format(start_time, end_time, text)
+		annotations_list = annotations_list + new_line + "\n"
+
+	file_path = ''.join([eaf_file_name[:-4], '.txt'])
+
+	with open(file_path, 'w') as file:
+		file.write(annotations_list)
 
 def print_time(annotation):
 	"""Prints the exact time of annotation
@@ -76,6 +91,34 @@ def get_annotation_list(file_name):
 	annotations_list = eaf.get_annotation_data_for_tier(tier_name)
 	return(annotations_list)
 
+def clean_eaf(data_directory):
+	if not os.path.exists(data_directory):
+		os.mkdir(data_directory)
+
+	for file_path in glob.glob('{}/*.eaf'.format(data_directory)):
+		annot_list = get_annotation_list(file_path)
+		logging.info("Currently in {} .".format(file_path))
+		logging.info("{:=^30}".format(''))
+		for i in range(len(annot_list) - 1):
+			space_error(annot_list[i])
+			if annot_list[i][1] != annot_list[i + 1][0]:
+				time_error(annot_list[i], annot_list[i + 1])
+		space_error(annot_list[-1])
+
+def get_args():
+	parser = argparse.ArgumentParser(description='Edit and work with .eaf files')
+	parser.add_argument(
+		'src_file',
+		type=str,
+		help='source file'
+	)
+	parser.add_argument(
+		'mode',
+		type=str,
+		help='eaf_to_txt or clean_eaf'
+	)
+	return parser.parse_args()	
+
 def init_logger():
 	file_name = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 	log_directory = "log/"
@@ -90,21 +133,11 @@ def init_logger():
 
 def main():
 	init_logger()
-	my_parce_eaf.change_function()
-
-	data_directory = 'data/'
-	if not os.path.exists(data_directory):
-		os.mkdir(data_directory)
-
-	for file_path in glob.glob('{}/*.eaf'.format(data_directory)):
-		annot_list = get_annotation_list(file_path)
-		logging.info("Currently in {} .".format(file_path))
-		logging.info("{:=^30}".format(''))
-		for i in range(len(annot_list) - 1):
-			space_error(annot_list[i])
-			if annot_list[i][1] != annot_list[i + 1][0]:
-				time_error(annot_list[i], annot_list[i + 1])
-		space_error(annot_list[-1])
+	args = get_args()
+	if args.mode == 'eaf_to_txt':
+		write_as_txt(args.src_file)
+	# elif args.mode == 'clean_eaf':
+	# 	clean_eaf(args.src_file)	
 
 if __name__ == "__main__":
 	main()
