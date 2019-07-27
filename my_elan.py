@@ -62,7 +62,7 @@ class Eaf:
     MIMES = {'wav': 'audio/x-wav', 'mpg': 'video/mpeg', 'mpeg': 'video/mpg',
              'xml': 'text/xml'}
 
-    def __init__(self, file_path=None, author='pympi'):
+    def __init__(self, file_path=None, author=''):
         """Construct either a new Eaf file or read on from a file/stream.
         :param str file_path: Path to read from, - for stdin. If ``None`` an
             empty Eaf file will be created.
@@ -539,7 +539,7 @@ class Eaf:
                        self.timeslots[m[0]] <= time and
                        self.timeslots[m[1]] >= time])
 
-    def get_annotation_data_after_time(self, id_tier, time):
+    def get_annotation_data_before_time(self, id_tier, time):
         """Give the annotation before a given time. When the tier contains
         reference annotations this will be returned, check
         :func:`get_ref_annotation_data_before_time` for the format. If an
@@ -549,7 +549,7 @@ class Eaf:
         :raises KeyError: If the tier is non existent.
         """
         if self.tiers[id_tier][1]:
-            return self.get_ref_annotation_after_time(id_tier, time)
+            return self.get_ref_annotation_before_time(id_tier, time)
         befores = self.get_annotation_data_between_times(
             id_tier, time, self.get_full_time_interval()[1])
         if befores:
@@ -557,7 +557,7 @@ class Eaf:
         else:
             return []
 
-    def get_annotation_data_before_time(self, id_tier, time):
+    def get_annotation_data_after_time(self, id_tier, time):
         """Give the annotation before a given time. When the tier contains
         reference annotations this will be returned, check
         :func:`get_ref_annotation_data_before_time` for the format. If an
@@ -851,7 +851,7 @@ class Eaf:
                 bucket.append((begin, end, value, rvalue))
         return bucket
 
-    def get_ref_annotation_data_after_time(self, id_tier, time):
+    def get_ref_annotation_data_before_time(self, id_tier, time):
         """Give the ref annotation after a time. If an annotation overlaps
         with `ktime`` that annotation will be returned.
         :param str id_tier: Name of the tier.
@@ -866,7 +866,7 @@ class Eaf:
         else:
             return []
 
-    def get_ref_annotation_data_before_time(self, id_tier, time):
+    def get_ref_annotation_data_after_time(self, id_tier, time):
         """Give the ref annotation before a time. If an annotation overlaps
         with ``time`` that annotation will be returned.
         :param str id_tier: Name of the tier.
@@ -1375,9 +1375,6 @@ def parse_eaf(file_path, eaf_obj):
     except etree.ParseError:
         raise Exception('Unable to parse eaf, can you open it in ELAN?')
 
-    if tree_root.attrib['VERSION'] not in ['2.8', '2.7']:
-        logging.warning('WARNING: Parsing unknown version of ELAN spec... '
-                    'This could result in errors...\n')
     eaf_obj.adocument.update(tree_root.attrib)
     del(eaf_obj.adocument['{http://www.w3.org/2001/XMLSchema-instance}noNamesp'
                           'aceSchemaLocation'])
@@ -1521,6 +1518,7 @@ def indent(el, level=0):
             el.tail = i
     else:
         if level and (not el.tail or not el.tail.strip()):
+            # i = i[:-2]
             el.tail = i
 
 
@@ -1623,9 +1621,9 @@ def to_eaf(file_path, eaf_obj, pretty=True):
         try:
             sys.stdout.write(etree.tostring(ADOCUMENT, encoding='unicode'))
         except LookupError:
-            sys.stdout.write(etree.tostring(ADOCUMENT, encoding='UTF-8'))
+            sys.stdout.write(etree.tostring(ADOCUMENT, encoding="UTF-8"))
     else:
         if os.access(file_path, os.F_OK):
             os.rename(file_path, '{}_edited.eaf'.format(file_path[:-4]))
         etree.ElementTree(ADOCUMENT).write(
-            file_path, xml_declaration=True, encoding='UTF-8')
+            file_path, xml_declaration=True, encoding="UTF-8")
