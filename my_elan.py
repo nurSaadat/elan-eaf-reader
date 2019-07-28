@@ -1,12 +1,10 @@
-from xml.etree import cElementTree as etree
 import os
 import re
 import sys
 import time
-import logging
 
-VERSION = '1.69'
-
+from xml.etree import cElementTree as etree
+from xml.dom import minidom
 
 class Eaf:
     """Read and write Elan's Eaf files.
@@ -70,8 +68,8 @@ class Eaf:
         """
         ctz = -time.altzone if time.localtime(time.time()).tm_isdst and\
             time.daylight else -time.timezone
-        self.maxts = 1
-        self.maxaid = 1
+        self.maxts = 0
+        self.maxaid = 0
         self.adocument = {
             'AUTHOR': author,
             'DATE': time.strftime('%Y-%m-%dT%H:%M:%S{:0=+3d}:{:0=2d}').format(
@@ -133,43 +131,6 @@ class Eaf:
         aid = self.generate_annotation_id()
         self.annotations[aid] = id_tier
         self.tiers[id_tier][0][aid] = (start_ts, end_ts, value, svg_ref)
-
-    def add_controlled_vocabulary(self, cv_id, ext_ref=None):
-        """Add a controlled vocabulary. This will initialize the controlled
-        vocabulary without entries.
-        :param str cv_id: Name of the controlled vocabulary.
-        :param str ext_ref: External reference.
-        """
-        self.controlled_vocabularies[cv_id] = ([], {}, ext_ref)
-
-    def add_cv_entry(self, cv_id, cve_id, values, ext_ref=None):
-        """Add an entry to a controlled vocabulary.
-        :param str cv_id: Name of the controlled vocabulary to add an entry.
-        :param str cve_id: Name of the entry.
-        :param list values: List of values of the form:
-            ``(value, lang_ref, description)`` where description can be
-            ``None``.
-        :param str ext_ref: External reference.
-        :throws KeyError: If there is no controlled vocabulary with that id.
-        :throws ValueError: If a language in one of the entries doesn't exist.
-        """
-        for value, lang_ref, description in values:
-            if lang_ref not in self.languages:
-                raise ValueError('Language not present: {}'.format(lang_ref))
-        self.controlled_vocabularies[cv_id][1][cve_id] = (values, ext_ref)
-
-    def add_cv_description(self, cv_id, lang_ref, description=None):
-        """Add a description to a controlled vocabulary.
-        :param str cv_id: Name of the controlled vocabulary to add the
-            description.
-        :param str lang_ref: Language reference.
-        :param str description: Description, this can be none.
-        :throws KeyError: If there is no controlled vocabulary with that id.
-        :throws ValueError: If the language provided doesn't exist.
-        """
-        if lang_ref not in self.languages:
-            raise ValueError('Language not present: {}'.format(lang_ref))
-        self.controlled_vocabularies[cv_id][0].append((lang_ref, description))
 
     def add_external_ref(self, eid, etype, value):
         """Add an external reference.
@@ -395,8 +356,8 @@ class Eaf:
             del(self.timeslots[a])
 
     def copy_tier(self, eaf_obj, tier_name):
-        """Copies a tier to another :class:`pympi.Elan.Eaf` object.
-        :param pympi.Elan.Eaf eaf_obj: Target Eaf object.
+        """Copies a tier to another :class:`Eaf` object.
+        :param Eaf eaf_obj: Target Eaf object.
         :param str tier_name: Name of the tier.
         :raises KeyError: If the tier doesn't exist.
         """
@@ -407,40 +368,11 @@ class Eaf:
         for ann in self.get_annotation_data_for_tier(tier_name):
             eaf_obj.insert_annotation(tier_name, ann[0], ann[1], ann[2])
 
-    def create_gaps_and_overlaps_tier(self, tier1, tier2, tier_name=None,
-                                      maxlen=-1, fast=False):
-        """Create a tier with the gaps and overlaps of the annotations.
-        For types see :func:`get_gaps_and_overlaps`
-        :param str tier1: Name of the first tier.
-        :param str tier2: Name of the second tier.
-        :param str tier_name: Name of the new tier, if ``None`` the name will
-                              be generated.
-        :param int maxlen: Maximum length of gaps (skip longer ones), if ``-1``
-                           no maximum will be used.
-        :param bool fast: Flag for using the fast method.
-        :returns: List of gaps and overlaps of the form:
-                  ``[(type, start, end)]``.
-        :raises KeyError: If a tier is non existent.
-        :raises IndexError: If no annotations are available in the tiers.
-        """
-        if tier_name is None:
-            tier_name = '{}_{}_ftos'.format(tier1, tier2)
-        self.add_tier(tier_name)
-        ftos = []
-        ftogen = self.get_gaps_and_overlaps2(tier1, tier2, maxlen) if fast\
-            else self.get_gaps_and_overlaps(tier1, tier2, maxlen)
-        for fto in ftogen:
-            ftos.append(fto)
-            if fto[1]-fto[0] >= 1:
-                self.add_annotation(tier_name, fto[0], fto[1], fto[2])
-        self.clean_time_slots()
-        return ftos
-
     def extract(self, start, end):
         """Extracts the selected time frame as a new object.
         :param int start: Start time.
         :param int end: End time.
-        :returns: class:`pympi.Elan.Eaf` object containing the extracted frame.
+        :returns: class:`Eaf` object containing the extracted frame.
         """
         from copy import deepcopy
         eaf_out = deepcopy(self)
@@ -483,39 +415,14 @@ class Eaf:
         return tier_name
 
     def generate_annotation_id(self):
-        """Generate the next annotation id, this function is mainly used
-        internally.
-        """
-        if not self.maxaid:
-            valid_anns = [int(''.join(filter(str.isdigit, a)))
-                          for a in self.timeslots]
-            self.maxaid = max(valid_anns + [1])+1
-        else:
-            self.maxaid += 1
+        self.maxaid += 1
         return 'a{:d}'.format(self.maxaid)
 
     def generate_ts_id(self, time=None):
-        """Generate the next timeslot id, this function is mainly used
-        internally
-        :param int time: Initial time to assign to the timeslot.
-        :raises ValueError: If the time is negative.
-        """
-        if time and time < 0:
-            raise ValueError('Time is negative...')
-	
-	# try to find it in the list of elements - if so, return immediately. Using an exception
-        # prevents the need to pass the list twice.
-        try:
-            ts = list(self.timeslots.keys())[list(self.timeslots.values()).index(time)]
-            return ts
-        except ValueError:
-            # if we can not find the key -> continue
-            pass
-
         if not self.maxts:
             valid_ts = [int(''.join(filter(str.isdigit, a)))
                         for a in self.timeslots]
-            self.maxts = max(valid_ts + [1])+1
+            self.maxts = max(valid_ts + [1])
         else:
             self.maxts += 1
         ts = 'ts{:d}'.format(self.maxts)
@@ -621,150 +528,6 @@ class Eaf:
         """
         return (0, 0) if not self.timeslots else\
             (min(self.timeslots.values()), max(self.timeslots.values()))
-
-    def get_gaps_and_overlaps(self, tier1, tier2, maxlen=-1):
-        """Give gaps and overlaps. The return types are shown in the table
-        below. The string will be of the format: ``id_tiername_tiername``.
-        .. note:: There is also a faster method: :func:`get_gaps_and_overlaps2`
-        For example when a gap occurs between tier1 and tier2 and they are
-        called ``speakerA`` and ``speakerB`` the annotation value of that gap
-        will be ``G12_speakerA_speakerB``.
-        | The gaps and overlaps are calculated using Heldner and Edlunds
-          method found in:
-        | *Heldner, M., & Edlund, J. (2010). Pauses, gaps and overlaps in
-          conversations. Journal of Phonetics, 38(4), 555–568.
-          doi:10.1016/j.wocn.2010.08.002*
-        +-----+---------------------------------------------+
-        | id  | Description                                 |
-        +=====+=============================================+
-        | O12 | Overlap from tier1 to tier2                 |
-        +-----+---------------------------------------------+
-        | O21 | Overlap from tier2 to tier1                 |
-        +-----+---------------------------------------------+
-        | G12 | Between speaker gap from tier1 to tier2     |
-        +-----+---------------------------------------------+
-        | G21 | Between speaker gap from tier2 to tier1     |
-        +-----+---------------------------------------------+
-        | W12 | Within speaker overlap from tier2 in tier1  |
-        +-----+---------------------------------------------+
-        | W21 | Within speaker overlap from tier1 in tier2  |
-        +-----+---------------------------------------------+
-        | P1  | Pause for tier1                             |
-        +-----+---------------------------------------------+
-        | P2  | Pause for tier2                             |
-        +-----+---------------------------------------------+
-        :param str tier1: Name of the first tier.
-        :param str tier2: Name of the second tier.
-        :param int maxlen: Maximum length of gaps (skip longer ones), if ``-1``
-                           no maximum will be used.
-        :yields: Tuples of the form ``[(start, end, type)]``.
-        :raises KeyError: If a tier is non existent.
-        :raises IndexError: If no annotations are available in the tiers.
-        """
-        spkr1anns = sorted((self.timeslots[a[0]], self.timeslots[a[1]])
-                           for a in self.tiers[tier1][0].values())
-        spkr2anns = sorted((self.timeslots[a[0]], self.timeslots[a[1]])
-                           for a in self.tiers[tier2][0].values())
-        line1 = []
-
-        def isin(x, lst):
-            return False if\
-                len([i for i in lst if i[0] <= x and i[1] >= x]) == 0 else True
-        minmax = (min(spkr1anns[0][0], spkr2anns[0][0]),
-                  max(spkr1anns[-1][1], spkr2anns[-1][1]))
-        last = (1, minmax[0])
-        for ts in range(*minmax):
-            in1, in2 = isin(ts, spkr1anns), isin(ts, spkr2anns)
-            if in1 and in2:      # Both speaking
-                if last[0] == 'B':
-                    continue
-                ty = 'B'
-            elif in1:            # Only 1 speaking
-                if last[0] == '1':
-                    continue
-                ty = '1'
-            elif in2:            # Only 2 speaking
-                if last[0] == '2':
-                    continue
-                ty = '2'
-            else:                # None speaking
-                if last[0] == 'N':
-                    continue
-                ty = 'N'
-            line1.append((last[0], last[1], ts))
-            last = (ty, ts)
-        line1.append((last[0], last[1], minmax[1]))
-        for i in range(len(line1)):
-            if line1[i][0] == 'N':
-                if i != 0 and i < len(line1) - 1 and\
-                        line1[i-1][0] != line1[i+1][0]:
-                    t = ('G12', tier1, tier2) if line1[i-1][0] == '1' else\
-                        ('G21', tier2, tier1)
-                    if maxlen == -1 or abs(line1[i][1]-line1[i][2]) < maxlen:
-                        yield (line1[i][1], line1[i][2]-1, '_'.join(t))
-                else:
-                    t = ('P1', tier1) if line1[i-1][0] == '1' else\
-                        ('P2', tier2)
-                    if maxlen == -1 or abs(line1[i][1]-line1[i][2]) < maxlen:
-                        yield (line1[i][1], line1[i][2]-1, '_'.join(t))
-            elif line1[i][0] == 'B':
-                if i != 0 and i < len(line1) - 1 and\
-                        line1[i-1][0] != line1[i+1][0]:
-                    t = ('O12', tier1, tier2) if line1[i-1][0] == '1' else\
-                        ('O21', tier2, tier1)
-                    yield (line1[i][1], line1[i][2]-1, '_'.join(t))
-                else:
-                    t = ('W12', tier1, tier2) if line1[i-1][0] == '1' else\
-                        ('W21', tier2, tier1)
-                    yield (line1[i][1], line1[i][2]-1, '_'.join(t))
-
-    def get_gaps_and_overlaps2(self, tier1, tier2, maxlen=-1):
-        """Faster variant of :func:`get_gaps_and_overlaps`. Faster in this case
-        means almost 100 times faster...
-        :param str tier1: Name of the first tier.
-        :param str tier2: Name of the second tier.
-        :param int maxlen: Maximum length of gaps (skip longer ones), if ``-1``
-                           no maximum will be used.
-        :yields: Tuples of the form ``[(start, end, type)]``.
-        :raises KeyError: If a tier is non existent.
-        """
-        ad = sorted(((a, i+1) for i, t in enumerate([tier1, tier2]) for a in
-                     self.get_annotation_data_for_tier(t)), reverse=True)
-        if ad:
-            last = (lambda x: (x[0][0], x[0][1], x[1]))(ad.pop())
-
-            def thr(x, y):
-                return maxlen == -1 or abs(x-y) < maxlen
-            while ad:
-                (begin, end, _), current = ad.pop()
-                if last[2] == current and thr(begin, last[1]):
-                    yield (last[1], begin, 'P{}'.format(current))
-                elif last[0] < begin and last[1] > end:
-                    yield (begin, end, 'W{}{}'.format(last[2], current))
-                    continue
-                elif last[1] > begin:
-                    yield (begin, last[1], 'O{}{}'.format(last[2], current))
-                elif last[1] < begin and thr(begin, last[1]):
-                    yield (last[1], begin, 'G{}{}'.format(last[2], current))
-                last = (begin, end, current)
-
-    def get_controlled_vocabulary_names(self):
-        """Gives all the controlled vocabulary names"""
-        return self.controlled_vocabularies.keys()
-
-    def get_cv_entries(self, cv_id):
-        """Gives all the controlled vocabulary entries names.
-        :param str cv_id: Name of the controlled vocabulary.
-        :throws KeyError: If there is no controlled vocabulary with that id.
-        """
-        return self.controlled_vocabularies[cv_id][1]
-
-    def get_cv_descriptions(self, cv_id):
-        """Gives all the controlled vocabulary descriptions.
-        :param str cv_id: Name of the controlled vocabulary.
-        :throws KeyError: If there is no controlled vocabulary with that id.
-        """
-        return self.controlled_vocabularies[cv_id][0]
 
     def get_external_ref(self, eid):
         """Give the external reference matching the id.
@@ -1035,33 +798,6 @@ class Eaf:
             self.clean_time_slots()
         return removed
 
-    def remove_controlled_vocabulary(self, cv_id):
-        """Remove a controlled vocabulary.
-        :param str cv_id: Name of the controlled vocabulary.
-        :throws KeyError: If there is no controlled vocabulary with that name.
-        """
-        del(self.controlled_vocabularies[cv_id])
-
-    def remove_cv_entry(self, cv_id, cve_id):
-        """Remove a controlled vocabulary entry.
-        :param str cv_id: Name of the controlled vocabulary.
-        :paarm str cve_id: Name of the entry.
-        :throws KeyError: If there is no entry or controlled vocabulary with
-            that name.
-        """
-        del(self.controlled_vocabularies[cv_id][1][cve_id])
-
-    def remove_cv_description(self, cv_id, lang_ref):
-        """Remove a controlled vocabulary description.
-        :param str cv_id: Name of the controlled vocabulary.
-        :paarm str cve_id: Name of the entry.
-        :throws KeyError: If there is no controlled vocabulary with that name.
-        """
-        for i, (l, d) in reversed(enumerate(
-                self.controlled_vocabularies[cv_id][1])):
-            if l == lang_ref:
-                del(self.controlled_vocabularies[cv_id][1][i])
-
     def remove_external_ref(self, eid):
         """Remove an external reference.
         :param str eid: Name of the external reference.
@@ -1196,59 +932,7 @@ class Eaf:
         if clean:
             self.clean_time_slots()
 
-    def remove_tiers(self, tiers):
-        """Remove multiple tiers, note that this is a lot faster then removing
-        them individually because of the delayed cleaning of timeslots.
-        :param list tiers: Names of the tier to remove.
-        :raises KeyError: If a tier is non existent.
-        """
-        for a in tiers:
-            self.remove_tier(a, clean=False)
-        self.clean_time_slots()
-
-    def rename_tier(self, id_from, id_to):
-        """Rename a tier. Note that this renames also the child tiers that have
-        the tier as a parent.
-        :param str id_from: Original name of the tier.
-        :param str id_to: Target name of the tier.
-        :throws KeyError: If the tier doesnt' exist.
-        """
-        childs = self.get_child_tiers_for(id_from)
-        self.tiers[id_to] = self.tiers.pop(id_from)
-        self.tiers[id_to][2]['TIER_ID'] = id_to
-        for child in childs:
-            self.tiers[child][2]['PARENT_REF'] = id_to
-
-    def shift_annotations(self, time):
-        """Shift all annotations in time. Annotations that are in the beginning
-        and a left shift is applied can be squashed or discarded.
-        :param int time: Time shift width, negative numbers make a left shift.
-        :returns: Tuple of a list of squashed annotations and a list of removed
-                  annotations in the format: ``(tiername, start, end, value)``.
-        """
-        total_re = []
-        total_sq = []
-        for name, tier in self.tiers.items():
-            squashed = []
-            for aid, (begin, end, value, _) in tier[0].items():
-                if self.timeslots[end]+time <= 0:
-                    squashed.append((name, aid))
-                elif self.timeslots[begin]+time < 0:
-                    total_sq.append((name, self.timeslots[begin],
-                                     self.timeslots[end], value))
-                    self.timeslots[begin] = 0
-                else:
-                    self.timeslots[begin] += time
-                    self.timeslots[end] += time
-            for name, aid in squashed:
-                start, end, value, _ = self.tiers[name][0][aid]
-                del(self.tiers[name][0][aid])
-                del(self.annotations[aid])
-                total_re.append(
-                    (name, self.timeslots[start], self.timeslots[end], value))
-        return total_sq, total_re
-
-    def to_file(self, file_path, pretty=True):
+    def to_file(self, file_path):
         """Write the object to a file, if the file already exists a backup will
         be created with the ``.bak`` suffix.
         :param str file_path: Filepath to write to.
@@ -1256,115 +940,12 @@ class Eaf:
             you are afraid of wasting bytes because it won't print unneccesary
             whitespace).
         """
-        to_eaf(file_path, self, pretty)
-
-    def to_textgrid(self, filtin=[], filtex=[], regex=False):
-        """Convert the object to a :class:`pympi.Praat.TextGrid` object.
-        :param list filtin: Include only tiers in this list, if empty
-            all tiers are included.
-        :param list filtex: Exclude all tiers in this list.
-        :param bool regex: If this flag is set the filters are seen as regexes.
-        :returns: :class:`pympi.Praat.TextGrid` representation.
-        :raises ImportError: If the pympi.Praat module can't be loaded.
-        """
-        from pympi.Praat import TextGrid
-        _, end = self.get_full_time_interval()
-        tgout = TextGrid(xmax=end/1000.0)
-        func = (lambda x, y: re.match(x, y)) if regex else lambda x, y: x == y
-        for tier in self.tiers:
-            if (filtin and not any(func(f, tier) for f in filtin)) or\
-                    (filtex and any(func(f, tier) for f in filtex)):
-                continue
-            ctier = tgout.add_tier(tier)
-            for intv in self.get_annotation_data_for_tier(tier):
-                try:
-                    ctier.add_interval(intv[0]/1000.0, intv[1]/1000.0, intv[2])
-                except:
-                    pass
-        return tgout
-
-
-def eaf_from_chat(file_path, codec='ascii', extension='wav'):
-    """Reads a .cha file and converts it to an elan object. The functions tries
-    to mimic the CHAT2ELAN program that comes with the CLAN package as close as
-    possible. This function however converts to the latest ELAN file format
-    since the library is designed for it. All CHAT headers will be added as
-    Properties in the object and the headers that have a similar field in an
-    Eaf file will be added there too. The file description of chat files can be
-    found `here <http://childes.psy.cmu.edu/manuals/CHAT.pdf>`_.
-    :param str file_path: The file path of the .cha file.
-    :param str codec: The codec, if the @UTF8 header is present it will choose
-        utf-8, default is ascii. Older CHAT files don't have their encoding
-        embedded in a header so you will probably need to choose some obscure
-        ISO charset then.
-    :param str extension: The extension of the media file.
-    :throws StopIteration: If the file doesn't contain a @End header, thus
-        inferring the file is broken.
-    """
-    eafob = Eaf()
-    eafob.add_linguistic_type('parent')
-    eafob.add_linguistic_type(
-        'child', constraints='Symbolic_Association', timealignable=False)
-    participantsdb = {}
-    last_annotation = None
-    with open(file_path, 'r') as chatin:
-        while True:
-            line = chatin.readline().strip().decode(codec)
-            if line == '@UTF8':  # Codec marker
-                codec = 'utf8'
-                continue
-            elif line == '@End':  # End of file marker
-                break
-            elif line.startswith('@') and line != '@Begin':  # Header marker
-                key, value = line.split(':\t')
-                eafob.add_property('{}:\t'.format(key), value)
-                if key == '@Languages':
-                    for language in value.split(','):
-                        eafob.add_language(language)
-                elif key == '@Participants':
-                    for participant in value.split(','):
-                        splits = participant.strip().split(' ')
-                        splits = map(lambda x: x.replace('_', ' '), splits)
-                        if len(splits) == 2:
-                            participantsdb[splits[0]] = (None, splits[1])
-                        elif len(splits) == 3:
-                            participantsdb[splits[0]] = (splits[1], splits[2])
-                elif key == '@ID':
-                    ids = map(lambda x: x.replace('_', ''), value.split('|'))
-                    eafob.add_tier(ids[2], part=participantsdb[ids[2]][0],
-                                   language=ids[0])
-                elif key == '@Media':
-                    media = value.split(',')
-                    eafob.add_linked_file(
-                        'file://{}.{}'.format(media[0], extension))
-                elif key == '@Transcriber:':
-                    for tier in eafob.get_tier_names():
-                        eafob.tiers[tier][2]['ANNOTATOR'] = value
-            elif line.startswith('*'):  # Main tier marker
-                while len(line.split('\x15')) != 3:
-                    line += chatin.readline().decode(codec).strip()
-                for participant in participantsdb.keys():
-                    if line.startswith('*{}:'.format(participant)):
-                        splits = ''.join(line.split(':')[1:]).strip()
-                        utt, time, _ = splits.split('\x15')
-                        time = map(int, time.split('_'))
-                        last_annotation = (participant, time[0], time[1], utt)
-                        eafob.add_annotation(*last_annotation)
-            elif line.startswith('%'):  # Dependant tier marker
-                splits = line.split(':')
-                name = '{}_{}'.format(last_annotation[0], splits[0][1:])
-                if name not in eafob.get_tier_names():
-                    eafob.add_tier(name, 'child', last_annotation[0])
-                eafob.add_ref_annotation(
-                    name, last_annotation[0], sum(last_annotation[1:3])/2,
-                    ''.join(splits[1:]).strip())
-    return eafob
-
+        to_eaf(file_path, self)
 
 def parse_eaf(file_path, eaf_obj):
     """Parse an EAF file
     :param str file_path: Path to read from, - for stdin.
-    :param pympi.Elan.Eaf eaf_obj: Existing EAF object to put the data in.
+    :param Eaf eaf_obj: Existing EAF object to put the data in.
     :returns: EAF object.
     """
     if file_path == '-':
@@ -1500,32 +1081,10 @@ def parse_eaf(file_path, eaf_obj):
             eaf_obj.external_refs[elem.attrib['EXT_REF_ID']] = (
                 elem.attrib['TYPE'], elem.attrib['VALUE'])
 
-
-def indent(el, level=0):
-    """Function to pretty print the xml, meaning adding tabs and newlines.
-    :param ElementTree.Element el: Current element.
-    :param int level: Current level.
-    """
-    i = '\n' + level * '\t'
-    if len(el):
-        if not el.text or not el.text.strip():
-            el.text = i+'\t'
-        if not el.tail or not el.tail.strip():
-            el.tail = i
-        for elem in el:
-            indent(elem, level+1)
-        if not el.tail or not el.tail.strip():
-            el.tail = i
-    else:
-        if level and (not el.tail or not el.tail.strip()):
-            # i = i[:-2]
-            el.tail = i
-
-
-def to_eaf(file_path, eaf_obj, pretty=True):
+def to_eaf(file_path, eaf_obj):
     """Write an Eaf object to file.
     :param str file_path: Filepath to write to, - for stdout.
-    :param pympi.Elan.Eaf eaf_obj: Object to write.
+    :param Eaf eaf_obj: Object to write.
     :param bool pretty: Flag to set pretty printing.
     """
     def rm_none(x):
@@ -1614,16 +1173,7 @@ def to_eaf(file_path, eaf_obj, pretty=True):
     for eid, (etype, value) in eaf_obj.external_refs.items():
         etree.SubElement(ADOCUMENT, 'EXTERNAL_REF', rm_none(
             {'EXT_REF_ID': eid, 'TYPE': etype, 'VALUE': value}))
-
-    if pretty:
-        indent(ADOCUMENT)
-    if file_path == '-':
-        try:
-            sys.stdout.write(etree.tostring(ADOCUMENT, encoding='unicode'))
-        except LookupError:
-            sys.stdout.write(etree.tostring(ADOCUMENT, encoding="UTF-8"))
-    else:
-        if os.access(file_path, os.F_OK):
-            os.rename(file_path, '{}_edited.eaf'.format(file_path[:-4]))
-        etree.ElementTree(ADOCUMENT).write(
-            file_path, xml_declaration=True, encoding="UTF-8")
+   
+    xmlstr = minidom.parseString(etree.tostring(ADOCUMENT)).toprettyxml(indent="   ")
+    with open(file_path, "w") as f:
+        f.write(xmlstr)
