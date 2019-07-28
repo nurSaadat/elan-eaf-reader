@@ -2,7 +2,6 @@ import os
 import re
 import sys
 import time
-import logging
 
 from xml.etree import cElementTree as etree
 from xml.dom import minidom
@@ -1174,10 +1173,7 @@ def to_eaf(file_path, eaf_obj):
     for eid, (etype, value) in eaf_obj.external_refs.items():
         etree.SubElement(ADOCUMENT, 'EXTERNAL_REF', rm_none(
             {'EXT_REF_ID': eid, 'TYPE': etype, 'VALUE': value}))
-
-    if os.access(file_path, os.F_OK):
-        os.rename(file_path, '{}_edited.eaf'.format(file_path[:-4]))
-    
+   
     xmlstr = minidom.parseString(etree.tostring(ADOCUMENT)).toprettyxml(indent="   ")
     with open(file_path, "w") as f:
         f.write(xmlstr)

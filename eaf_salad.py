@@ -1,14 +1,14 @@
 import argparse
 import datetime 
-import logging
 import os
 import my_elan
+from tqdm import tqdm
 
 def write_as_txt(eaf_file_name):
 	eaf_file = my_elan.Eaf(eaf_file_name)
 	tier_name = list(eaf_file.get_tier_names())[0]
 	annotations_list = ""
-	for annotation in eaf_file.get_annotation_data_for_tier(tier_name):
+	for annotation in tqdm(eaf_file.get_annotation_data_for_tier(tier_name)):
 		start_time, end_time, text = annotation
 		new_line = "{}\t{}\t{}".format(start_time, end_time, text)
 		annotations_list = annotations_list + new_line + "\n"
@@ -18,7 +18,7 @@ def write_as_txt(eaf_file_name):
 	with open(file_path, 'w') as file:
 		file.write(annotations_list)
 
-def print_time(annotation):
+def log_time(milliseconds):
 	"""Prints the exact time of annotation
 
 	Parameters:
@@ -29,13 +29,12 @@ def print_time(annotation):
 		None
 
 	"""
-	seconds = annotation[1] * 0.001
+	seconds = milliseconds * 0.001
 	minutes = int(seconds // 60)
 	seconds = int(seconds % 60)
-	millisec = int(annotation[1] % 1000)
-	logging.info("time: {}:{}.{}".format(minutes, seconds, millisec)) 
+	millisec = int(milliseconds % 1000)
 
-def space_error(annotation):
+def remove_space_error(annotation_text):
 	"""Checks whether there is a space before or after a string
 
 	Parameters:
@@ -46,17 +45,13 @@ def space_error(annotation):
 		None
 
 	"""
-	text = annotation[2]
-	if text.startswith(' '):
-		logging.info("space start {}".format(annotation))
-		print_time(annotation)
-		logging.info("{:*^30}".format(''))
-	if text.endswith(' '):
-		logging.info("space end {}".format(annotation))
-		print_time(annotation)
-		logging.info("{:*^30}".format(''))
+	if annotation_text.startswith(' '):
+		annotation_text = annotation_text[1:]
+	if annotation_text.endswith(' '):
+		annotation_text = annotation_text[:-1]
+	return annotation_text
 
-def time_error(annotation_1, annotation_2):
+def remove_time_error(end_time_1, start_time_2):
 	"""Prints whether there is a time gap between two annotations
 
 	Parameters:
@@ -69,12 +64,12 @@ def time_error(annotation_1, annotation_2):
 		None
 
 	"""
-	time_dif = annotation_2[0] - annotation_1[1]
-	logging.info("gap between {} and {}". format(annotation_1, annotation_2))
-	print_time(annotation_1)
-	logging.info("time gap {}".format(time_dif))
-	logging.info("{:*^30}".format(''))
-
+	time_dif = start_time_2 - end_time_1
+	if time_dif < 20:
+		return end_time_1
+	else:
+		return start_time_2
+	
 def clean_eaf(src_file):
 	old_eaf = my_elan.Eaf(src_file)
 	media_descriptors = old_eaf.media_descriptors
@@ -85,9 +80,14 @@ def clean_eaf(src_file):
 	new_eaf.media_descriptors = media_descriptors
 	new_eaf.properties = properties
 
-	for annotation in old_eaf.get_annotation_data_for_tier(tier_name):
+	prev_end_time = None
+	for annotation in tqdm(old_eaf.get_annotation_data_for_tier(tier_name)):
 		start_time, end_time, text = annotation
+		if prev_end_time:
+			start_time = remove_time_error(prev_end_time, start_time)
+		text = remove_space_error(text)
 		new_eaf.add_annotation(tier_name, start_time, end_time, value=text)
+		prev_end_time = end_time
 	new_eaf.to_file(src_file)    
 
 def get_args():
@@ -104,20 +104,7 @@ def get_args():
 	)	
 	return parser.parse_args()	
 
-def init_logger():
-	file_name = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-	log_directory = "log/"
-	if not os.path.exists(log_directory):
-		os.mkdir(log_directory)
-	log_path = "".join([log_directory, file_name, '.log'])
-	logging.basicConfig(
-		filename=log_path, 
-		level=logging.INFO,
-		format='%(message)s\n'
-	)
-
 def main():
-	init_logger()
 	args = get_args()
 	data_directory = 'data/'
 	if not os.path.exists(data_directory):
