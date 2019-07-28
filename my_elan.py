@@ -1,9 +1,11 @@
-from xml.etree import cElementTree as etree
 import os
 import re
 import sys
 import time
 import logging
+
+from xml.etree import cElementTree as etree
+from xml.dom import minidom
 
 class Eaf:
     """Read and write Elan's Eaf files.
@@ -355,8 +357,8 @@ class Eaf:
             del(self.timeslots[a])
 
     def copy_tier(self, eaf_obj, tier_name):
-        """Copies a tier to another :class:`pympi.Elan.Eaf` object.
-        :param pympi.Elan.Eaf eaf_obj: Target Eaf object.
+        """Copies a tier to another :class:`Eaf` object.
+        :param Eaf eaf_obj: Target Eaf object.
         :param str tier_name: Name of the tier.
         :raises KeyError: If the tier doesn't exist.
         """
@@ -371,7 +373,7 @@ class Eaf:
         """Extracts the selected time frame as a new object.
         :param int start: Start time.
         :param int end: End time.
-        :returns: class:`pympi.Elan.Eaf` object containing the extracted frame.
+        :returns: class:`Eaf` object containing the extracted frame.
         """
         from copy import deepcopy
         eaf_out = deepcopy(self)
@@ -797,33 +799,6 @@ class Eaf:
             self.clean_time_slots()
         return removed
 
-    def remove_controlled_vocabulary(self, cv_id):
-        """Remove a controlled vocabulary.
-        :param str cv_id: Name of the controlled vocabulary.
-        :throws KeyError: If there is no controlled vocabulary with that name.
-        """
-        del(self.controlled_vocabularies[cv_id])
-
-    def remove_cv_entry(self, cv_id, cve_id):
-        """Remove a controlled vocabulary entry.
-        :param str cv_id: Name of the controlled vocabulary.
-        :paarm str cve_id: Name of the entry.
-        :throws KeyError: If there is no entry or controlled vocabulary with
-            that name.
-        """
-        del(self.controlled_vocabularies[cv_id][1][cve_id])
-
-    def remove_cv_description(self, cv_id, lang_ref):
-        """Remove a controlled vocabulary description.
-        :param str cv_id: Name of the controlled vocabulary.
-        :paarm str cve_id: Name of the entry.
-        :throws KeyError: If there is no controlled vocabulary with that name.
-        """
-        for i, (l, d) in reversed(enumerate(
-                self.controlled_vocabularies[cv_id][1])):
-            if l == lang_ref:
-                del(self.controlled_vocabularies[cv_id][1][i])
-
     def remove_external_ref(self, eid):
         """Remove an external reference.
         :param str eid: Name of the external reference.
@@ -958,59 +933,7 @@ class Eaf:
         if clean:
             self.clean_time_slots()
 
-    def remove_tiers(self, tiers):
-        """Remove multiple tiers, note that this is a lot faster then removing
-        them individually because of the delayed cleaning of timeslots.
-        :param list tiers: Names of the tier to remove.
-        :raises KeyError: If a tier is non existent.
-        """
-        for a in tiers:
-            self.remove_tier(a, clean=False)
-        self.clean_time_slots()
-
-    def rename_tier(self, id_from, id_to):
-        """Rename a tier. Note that this renames also the child tiers that have
-        the tier as a parent.
-        :param str id_from: Original name of the tier.
-        :param str id_to: Target name of the tier.
-        :throws KeyError: If the tier doesnt' exist.
-        """
-        childs = self.get_child_tiers_for(id_from)
-        self.tiers[id_to] = self.tiers.pop(id_from)
-        self.tiers[id_to][2]['TIER_ID'] = id_to
-        for child in childs:
-            self.tiers[child][2]['PARENT_REF'] = id_to
-
-    def shift_annotations(self, time):
-        """Shift all annotations in time. Annotations that are in the beginning
-        and a left shift is applied can be squashed or discarded.
-        :param int time: Time shift width, negative numbers make a left shift.
-        :returns: Tuple of a list of squashed annotations and a list of removed
-                  annotations in the format: ``(tiername, start, end, value)``.
-        """
-        total_re = []
-        total_sq = []
-        for name, tier in self.tiers.items():
-            squashed = []
-            for aid, (begin, end, value, _) in tier[0].items():
-                if self.timeslots[end]+time <= 0:
-                    squashed.append((name, aid))
-                elif self.timeslots[begin]+time < 0:
-                    total_sq.append((name, self.timeslots[begin],
-                                     self.timeslots[end], value))
-                    self.timeslots[begin] = 0
-                else:
-                    self.timeslots[begin] += time
-                    self.timeslots[end] += time
-            for name, aid in squashed:
-                start, end, value, _ = self.tiers[name][0][aid]
-                del(self.tiers[name][0][aid])
-                del(self.annotations[aid])
-                total_re.append(
-                    (name, self.timeslots[start], self.timeslots[end], value))
-        return total_sq, total_re
-
-    def to_file(self, file_path, pretty=True):
+    def to_file(self, file_path):
         """Write the object to a file, if the file already exists a backup will
         be created with the ``.bak`` suffix.
         :param str file_path: Filepath to write to.
@@ -1018,37 +941,12 @@ class Eaf:
             you are afraid of wasting bytes because it won't print unneccesary
             whitespace).
         """
-        to_eaf(file_path, self, pretty)
-
-    def to_textgrid(self, filtin=[], filtex=[], regex=False):
-        """Convert the object to a :class:`pympi.Praat.TextGrid` object.
-        :param list filtin: Include only tiers in this list, if empty
-            all tiers are included.
-        :param list filtex: Exclude all tiers in this list.
-        :param bool regex: If this flag is set the filters are seen as regexes.
-        :returns: :class:`pympi.Praat.TextGrid` representation.
-        :raises ImportError: If the pympi.Praat module can't be loaded.
-        """
-        from pympi.Praat import TextGrid
-        _, end = self.get_full_time_interval()
-        tgout = TextGrid(xmax=end/1000.0)
-        func = (lambda x, y: re.match(x, y)) if regex else lambda x, y: x == y
-        for tier in self.tiers:
-            if (filtin and not any(func(f, tier) for f in filtin)) or\
-                    (filtex and any(func(f, tier) for f in filtex)):
-                continue
-            ctier = tgout.add_tier(tier)
-            for intv in self.get_annotation_data_for_tier(tier):
-                try:
-                    ctier.add_interval(intv[0]/1000.0, intv[1]/1000.0, intv[2])
-                except:
-                    pass
-        return tgout
+        to_eaf(file_path, self)
 
 def parse_eaf(file_path, eaf_obj):
     """Parse an EAF file
     :param str file_path: Path to read from, - for stdin.
-    :param pympi.Elan.Eaf eaf_obj: Existing EAF object to put the data in.
+    :param Eaf eaf_obj: Existing EAF object to put the data in.
     :returns: EAF object.
     """
     if file_path == '-':
@@ -1184,32 +1082,10 @@ def parse_eaf(file_path, eaf_obj):
             eaf_obj.external_refs[elem.attrib['EXT_REF_ID']] = (
                 elem.attrib['TYPE'], elem.attrib['VALUE'])
 
-
-def indent(el, level=0):
-    """Function to pretty print the xml, meaning adding tabs and newlines.
-    :param ElementTree.Element el: Current element.
-    :param int level: Current level.
-    """
-    i = '\n' + level * '\t'
-    if len(el):
-        if not el.text or not el.text.strip():
-            el.text = i+'\t'
-        if not el.tail or not el.tail.strip():
-            el.tail = i
-        for elem in el:
-            indent(elem, level+1)
-        if not el.tail or not el.tail.strip():
-            el.tail = i
-    else:
-        if level and (not el.tail or not el.tail.strip()):
-            # i = i[:-2]
-            el.tail = i
-
-
-def to_eaf(file_path, eaf_obj, pretty=True):
+def to_eaf(file_path, eaf_obj):
     """Write an Eaf object to file.
     :param str file_path: Filepath to write to, - for stdout.
-    :param pympi.Elan.Eaf eaf_obj: Object to write.
+    :param Eaf eaf_obj: Object to write.
     :param bool pretty: Flag to set pretty printing.
     """
     def rm_none(x):
@@ -1299,15 +1175,9 @@ def to_eaf(file_path, eaf_obj, pretty=True):
         etree.SubElement(ADOCUMENT, 'EXTERNAL_REF', rm_none(
             {'EXT_REF_ID': eid, 'TYPE': etype, 'VALUE': value}))
 
-    if pretty:
-        indent(ADOCUMENT)
-    if file_path == '-':
-        try:
-            sys.stdout.write(etree.tostring(ADOCUMENT, encoding='unicode'))
-        except LookupError:
-            sys.stdout.write(etree.tostring(ADOCUMENT, encoding="UTF-8"))
-    else:
-        if os.access(file_path, os.F_OK):
-            os.rename(file_path, '{}_edited.eaf'.format(file_path[:-4]))
-        etree.ElementTree(ADOCUMENT).write(
-            file_path, xml_declaration=True, encoding="UTF-8")
+    if os.access(file_path, os.F_OK):
+        os.rename(file_path, '{}_edited.eaf'.format(file_path[:-4]))
+    
+    xmlstr = minidom.parseString(etree.tostring(ADOCUMENT)).toprettyxml(indent="   ")
+    with open(file_path, "w") as f:
+        f.write(xmlstr)
