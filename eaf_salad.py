@@ -106,10 +106,6 @@ def get_args():
 
 def main():
 	args = get_args()
-	data_directory = 'data/'
-	if not os.path.exists(data_directory):
-		os.mkdir(data_directory)
-	args.src_file = "".join([data_directory, args.src_file])
 
 	if args.mode == 'eaf_to_txt':
 		write_as_txt(args.src_file)
