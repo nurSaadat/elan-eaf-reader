@@ -123,6 +123,7 @@ class Eaf:
         if start == end:
             raise ValueError('Annotation length is zero...')
         if start > end:
+            print(start, end, value)
             raise ValueError('Annotation length is negative...')
         if start < 0:
             raise ValueError('Start is negative...')
