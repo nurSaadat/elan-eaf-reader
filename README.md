@@ -1,8 +1,10 @@
 # elan-eaf-reader
-Simple program to detect labeling errors.
+Python application to convert ```.eaf``` files to ```.txt```.
 
 ### Prerequisites
-   None
+   argparse
+   glob
+   tqdm
 
 ### Get Started   
-   To start program place your .eaf files into elan-eaf-reader folder. After that open the terminal and type ```python eaf_helper.py MODE NAME_OF_FILE```.  
+   To start program open the terminal and type ```python eaf2txt.py source_directory output_directory```.  
