@@ -2,9 +2,7 @@
 Python application to convert ```.eaf``` files to ```.txt```.
 
 ### Prerequisites
-   argparse
-   glob
-   tqdm
+   pip install tqdm
 
 ### Get Started   
    To start program open the terminal and type ```python eaf2txt.py source_directory output_directory```.  
