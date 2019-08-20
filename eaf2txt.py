@@ -1,13 +1,14 @@
 import argparse
 import glob
-import parse_eaf
+import eaf_reader
+import os
 from tqdm import tqdm
 
 def get_annotation_list(file_name):
 	'''
 
 	'''
-	eaf_file = parse_eaf.Eaf(file_name)
+	eaf_file = eaf_reader.Eaf(file_name)
 	tier_name = list(eaf_file.get_tier_names())[0]
 	annotations_list = ""
 	
@@ -21,6 +22,9 @@ def write_as_txt(source_dir, output_dir):
 	'''
 	
 	'''
+	if not os.path.exists(output_dir):
+		os.mkdir(output_dir)
+
 	eaf_files_list = glob.glob('{}/*.eaf'.format(source_dir))
 
 	for eaf_file_path in tqdm(eaf_files_list):
